@@ -50,13 +50,16 @@ system_message = {
 
 # Ruta principal del chatbot
 @app.post("/chat")
-async def chat(request: ChatRequest):
-    user_message = {"role": "user", "content": request.message}
+async def chat(request: Request):
+    data = await request.json()
+    user_message = data.get("message", "")
 
     response = client.chat.completions.create(
         model="gpt-4",
-        messages=[system_message, user_message]
+        messages=[
+            system_message,
+            {"role": "user", "content": user_message}
+        ]
     )
 
-    reply = response.choices[0].message.content
-    return {"response": reply}
+    return JSONResponse(content={"response": response.choices[0].message.content})
