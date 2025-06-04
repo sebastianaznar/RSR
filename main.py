@@ -1,65 +1,62 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
 
 # Cargar variables de entorno
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
 
-# Inicializar FastAPI
+# Inicializar cliente OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Crear aplicación FastAPI
 app = FastAPI()
 
-# Configurar CORS
+# Middleware CORS para permitir llamadas desde Lovable u otros orígenes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Puedes restringirlo si tienes frontend definido
+    allow_origins=["*"],  # Puedes limitar a ["https://tuweb.lovable.app"] si quieres más seguridad
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Definir modelo de entrada
-class ChatRequest(BaseModel):
-    message: str
-
-# System prompt especializado en seguridad vial
+# Mensaje del sistema para controlar el rol del asistente
 system_message = {
     "role": "system",
     "content": (
         "Eres un asistente virtual especializado en seguridad vial y normas de tráfico en España, "
-        "con énfasis en la prevención de accidentes y la orientación ciudadana. "
-        "Actúas como un experto en la normativa de la Dirección General de Tráfico (DGT), señalización vial, "
-        "conducción responsable y recomendaciones prácticas para peatones, ciclistas y conductores.\n\n"
-        "Tu tarea es resolver dudas, ofrecer consejos claros y actualizados, y orientar a los usuarios "
-        "sobre cómo moverse de forma segura por las vías urbanas y rurales. Puedes explicar el significado de señales, "
-        "dar indicaciones sobre cómo actuar ante situaciones comunes en carretera, recordar normativas clave y "
-        "promover el respeto por las normas.\n\n"
-        "Mantén siempre un tono cercano, profesional y pedagógico. Evita tecnicismos innecesarios y no salgas del ámbito "
-        "de la seguridad vial, la movilidad segura y la normativa española de tráfico. Si el usuario pregunta algo fuera de tu dominio, "
-        "redirígelo con cortesía y vuelve al foco principal.\n\n"
-        "No emitas opiniones personales, no inventes información, y asegúrate de ofrecer siempre respuestas verificables y útiles. "
-        "Si el usuario menciona una situación urgente o peligrosa, sugiérele contactar con los servicios de emergencia o la DGT directamente.\n\n"
-        "Tu propósito es contribuir a que cada desplazamiento en carretera o ciudad sea más seguro, informado y consciente. "
-        "Responde con claridad, precisión y vocación de servicio público."
-    ),
+        "con énfasis en la prevención de accidentes y la orientación ciudadana. Actúas como un experto en la normativa "
+        "de la Dirección General de Tráfico (DGT), señalización vial, conducción responsable y recomendaciones prácticas "
+        "para peatones, ciclistas y conductores. Puedes explicar señales, resolver dudas, y dar consejos útiles. "
+        "Responde con tono cercano, profesional y pedagógico. No des opiniones personales ni inventes datos. "
+        "Si el usuario hace preguntas fuera de este ámbito, invítale a contactar con los canales oficiales y redirígelo al tema principal."
+    )
 }
 
-# Ruta principal del chatbot
+# Endpoint POST para recibir los mensajes
 @app.post("/chat")
 async def chat(request: Request):
     data = await request.json()
-    user_message = data.get("message", "")
+    message = data.get("message") or data.get("text") or ""
 
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            system_message,
-            {"role": "user", "content": user_message}
-        ]
-    )
+    if not message:
+        return JSONResponse(content={"response": "No he recibido ningún mensaje para responder."})
 
-    return JSONResponse(content={"response": response.choices[0].message.content})
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",  # Puedes usar "gpt-3.5-turbo" si prefieres velocidad
+            messages=[
+                system_message,
+                {"role": "user", "content": message}
+            ]
+        )
+        reply = response.choices[0].message.content.strip()
+        return JSONResponse(content={"response": reply})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"response": f"Ha ocurrido un error procesando tu mensaje: {str(e)}"}
+        )
